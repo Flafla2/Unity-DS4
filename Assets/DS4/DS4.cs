@@ -14,9 +14,8 @@ namespace DS4Api
         public string hidapi_path { get { return _hidapi_path; } }
         private string _hidapi_path;
 
-        private bool IsUSB;
-
         private const int TOUCHPAD_DATA_OFFSET = 35;
+        private DS4Orientation _Orientation;
 
         public byte[] dump;
 
@@ -24,6 +23,7 @@ namespace DS4Api
         {
             _hidapi_handle = hidapi_handle;
             _hidapi_path = hidapi_path;
+            _Orientation = new DS4Orientation();
         }
 
         public DS4Data ReadDS4Data()
@@ -105,13 +105,20 @@ namespace DS4Api
 
             // End section from ds4tool source //
 
-            cState.Gyro[0] = (short)((data[14] << 8) | data[13]);
-            cState.Gyro[1] = (short)((data[16] << 8) | data[15]);
-            cState.Gyro[2] = (short)((data[18] << 8) | data[17]);
+            cState.Timestamp = (ushort)((data[11] << 8) | data[10]);
 
-            cState.Accel[0] = (short)((data[20] << 8) | data[19]);
-            cState.Accel[1] = (short)((data[22] << 8) | data[21]);
-            cState.Accel[2] = (short)((data[24] << 8) | data[23]);
+            short[] Gyro = new short[3];
+            short[] Accel = new short[3];
+            Gyro[0] = (short)((data[14] << 8) | data[13]);
+            Gyro[1] = (short)((data[16] << 8) | data[15]);
+            Gyro[2] = (short)((data[18] << 8) | data[17]);
+
+            Accel[0] = (short)((data[20] << 8) | data[19]);
+            Accel[1] = (short)((data[22] << 8) | data[21]);
+            Accel[2] = (short)((data[24] << 8) | data[23]);
+
+            _Orientation.ApplyGyroAccel(Accel, Gyro, cState.Timestamp);
+            cState.Orientation = _Orientation;
 
             return cState;
         }
@@ -179,8 +186,7 @@ namespace DS4Api
     {
         public DS4Data()
         {
-            Gyro = new short[3];
-            Accel = new short[3];
+            Orientation = new DS4Orientation();
             Touches = new int[2, 2];
             lstick = new byte[2];
             rstick = new byte[2];
@@ -213,16 +219,108 @@ namespace DS4Api
          
         public bool PS;
         public bool TouchButton;
-         
-        public short[] Gyro; // size 3
-        public short[] Accel; // size 3
+
+        public DS4Orientation Orientation;
 
         // 188 in this value = 1.25ms
-        public short Timestamp;
+        public ushort Timestamp;
          
         public int TouchCount = 0; // 0, 1, 2
          
         public int[,] Touches; // Range: 0 - 4095
+    }
+
+    public class DS4Orientation
+    {
+        public Quaternion Orientation
+        {
+            get { return _Orientation; }
+        }
+        private Quaternion _Orientation;
+
+        public Vector3 Accel_Raw
+        {
+            get { return _Accel_Raw; }
+        }
+        private Vector3 _Accel_Raw = Vector3.zero;
+
+        public Vector3 Gyro_Raw
+        {
+            get { return _Gyro_Raw; }
+        }
+        private Vector3 _Gyro_Raw = Vector3.zero;
+
+        public float Accel_Deviation
+        {
+            get { return _Accel_Deviation; }
+        }
+        private float _Accel_Deviation;
+
+        public DS4Orientation() : this(Quaternion.identity) { }
+
+        public DS4Orientation(Quaternion initial)
+        {
+            _Orientation = initial;
+            accel_array = new List<Vector3>(max_accel_array_size);
+        }
+
+        private List<Vector3> accel_array;
+        private int max_accel_array_size = 20;
+        private float max_still_sd = 100; // Maximum standard deviation of accel to still be considered still
+        private int previous_timestamp = -1;
+
+        public void ApplyGyroAccel(short[] Accel, short[] Gyro, ushort timestamp)
+        {
+            if (previous_timestamp != -1 && timestamp > previous_timestamp)
+            {
+                float diff = (float)(timestamp - previous_timestamp) * 0.00125f / 188f; // s since last report
+                if (diff == 0) diff = 0.00125f;
+                _Gyro_Raw = new Vector3(-Gyro[0], -Gyro[1], Gyro[2]) * diff / 20f;
+                previous_timestamp = timestamp;
+            }
+            else
+            {
+                previous_timestamp = timestamp;
+                return;
+            }
+            _Accel_Raw = new Vector3(-Accel[0], Accel[1], Accel[2]) * 9.8f / 8100f;
+
+            
+
+            if (accel_array.Count == max_accel_array_size)
+                accel_array.RemoveAt(0);
+                
+            accel_array.Add(new Vector3(Accel[0], Accel[1], Accel[2]));
+
+            float sd = StandardDeviation().magnitude;
+            _Accel_Deviation = sd;
+
+            if (sd <= max_still_sd)
+                _Orientation = Quaternion.FromToRotation(Vector3.up, Accel_Raw);
+            else
+                _Orientation = Quaternion.Euler(Gyro_Raw) * _Orientation;
+        }
+
+        private Vector3 StandardDeviation()
+        {
+            Vector3 mean = Vector3.zero;
+            for (int x = 0; x < accel_array.Count; x++)
+                mean += accel_array[x];
+            mean /= accel_array.Count;
+
+            Vector3 ret = Vector3.zero;
+            for (int x = 0; x < accel_array.Count; x++)
+            {
+                Vector3 d = accel_array[x] - mean;
+                ret += new Vector3(d.x * d.x, d.y * d.y, d.z * d.z) / accel_array.Count;
+            }
+
+            ret.x = Mathf.Sqrt(ret.x);
+            ret.y = Mathf.Sqrt(ret.y);
+            ret.z = Mathf.Sqrt(ret.z);
+
+            return ret;
+        }
     }
 
     public class DS4Out

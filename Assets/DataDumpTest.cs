@@ -9,6 +9,8 @@ public class DataDumpTest : MonoBehaviour
 
     private DS4Data data;
 
+    public Transform Visual;
+
     void Update()
     {
         if (!DS4Manager.HasWiimote()) { return; }
@@ -20,18 +22,11 @@ public class DataDumpTest : MonoBehaviour
         {
             data = tentative;
             tentative = controller.ReadDS4Data();
-
-            if(tentative != null && data != null)
-            {
-                float diff = (float)(tentative.Timestamp - data.Timestamp) * 0.00125f / 188f; // s since last report
-                if (diff == 0) diff = 0.00125f;
-                Vector3 gyro = new Vector3(tentative.Gyro[0], tentative.Gyro[1], tentative.Gyro[2]) * diff / 5f;
-                gyro_total += gyro;
-            }
         } while (tentative != null);
-    }
 
-    private Vector3 gyro_total = Vector3.zero;
+        if (Visual != null)
+            Visual.rotation = data.Orientation.Orientation;
+    }
 
     void OnGUI()
     {
@@ -79,12 +74,11 @@ public class DataDumpTest : MonoBehaviour
         GUILayout.Label("Trackpad Finger 1: (" + data.Touches[0, 0] + ", " + data.Touches[0, 1] + ")");
         GUILayout.Label("Trackpad Finger 2: (" + data.Touches[1, 0] + ", " + data.Touches[1, 1] + ")");
 
-        Vector3 gyro = new Vector3(data.Gyro[0], data.Gyro[1], data.Gyro[2]) / 2000f;
-        GUILayout.Label("Gyro: " + gyro);
-        GUILayout.Label("Gyro Total: " + gyro_total);
-        if (GUILayout.Button("Reset total"))
-            gyro_total = Vector3.zero;
-        GUILayout.Label("Accel: (" + data.Accel[0] + ", " + data.Accel[1] + ", " + data.Accel[2] + ")");
+        GUILayout.Label("Gyro: " + data.Orientation.Gyro_Raw);
+        GUILayout.Label("Rotation: " + data.Orientation.Orientation.eulerAngles);
+        GUILayout.Label("Accel: " + data.Orientation.Accel_Raw);
+        GUILayout.Label("Accel Standard Deviation: " + data.Orientation.Accel_Deviation);
+        GUILayout.Label("Accel Magnitude: " + data.Orientation.Accel_Raw.magnitude);
 
         GUILayout.EndVertical();
 
