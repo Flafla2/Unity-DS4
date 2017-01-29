@@ -10,6 +10,7 @@ namespace DS4Api
     public class DS4Manager
     {
         public const ushort pid = 0x05C4;
+        public const ushort pid2 = 0x09CC;
         public const ushort vid = 0x054C;
 
         /// A list of all currently connected Wii Remotes.
@@ -19,10 +20,16 @@ namespace DS4Api
         public static bool FindWiimotes()
         {
             IntPtr ptr = HIDapi.hid_enumerate(vid, pid);
-            IntPtr cur_ptr = ptr;
 
             if (ptr == IntPtr.Zero)
-                return false;
+            {
+                ptr = HIDapi.hid_enumerate(vid, pid2);
+                if (ptr == IntPtr.Zero)
+                {
+                    return false;
+                }
+            }
+            IntPtr cur_ptr = ptr;
 
             hid_device_info enumerate = (hid_device_info)Marshal.PtrToStructure(ptr, typeof(hid_device_info));
 
